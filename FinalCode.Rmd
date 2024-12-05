@@ -1,0 +1,188 @@
+```{r}
+pacman::p_load(ggplot2, car, odds.n.ends, readr, dplyr, stats)
+library(dplyr)
+library(stats)
+```
+
+```{r}
+install.packages("sas7bdat")
+library(sas7bdat)
+df <- read.sas7bdat("/Users/despinatsiamtsiouris/Downloads/chs2014_public.sas7bdat")
+
+install.packages("haven")
+library(haven)
+
+df <- df %>%  
+  mutate(insure5_new = case_when(
+    insure5 == 1 ~ 0,
+    insure5 %in% c(2, 3) ~ 1,
+    insure5 == 4 ~ NA_real_,
+    TRUE ~ NA_real_
+  )) %>%
+  filter(!is.na(insure5_new))
+
+
+df <- df %>% 
+  filter(age45up %in% c(1, 2))
+
+table(df$evercolon14, useNA = "ifany")
+df <- df %>% filter(evercolon14 %in% c(1, 2))
+
+df <- df %>%
+  mutate(
+    evercolon14 = ifelse(evercolon14 == 2, 0, evercolon14)  
+  )
+
+
+df_cleaned<- df %>% select(
+  insure5_new, evercolon14, age45up, newrace, fluvaccineshot, sex, education,
+)
+
+```
+```{r}
+ev_table <- df_cleaned %>%
+  count(evercolon14) %>%
+  rename(colon = evercolon14, evercolon14_count = n)
+print(ev_table)
+
+```
+
+```{r}
+table(df_cleaned$evercolon14, df_cleaned$evercolon14, useNA = "always")
+```
+
+```{r}
+install.packages("tidyr")
+library(tidyr)
+df_cleaned <- df %>%
+  drop_na(sex, newrace, fluvaccineshot, education) %>%
+  select(insure5_new, evercolon14, newrace, sex, fluvaccineshot, education)  
+head(df_cleaned)
+
+```
+
+```{r}
+
+summary(df_cleaned$insure5_new)
+
+```
+
+```{r}
+
+library(e1071)
+
+skew_education <- skewness(df_cleaned$education, na.rm = TRUE)
+skew_fluvaccineshot <- skewness(df_cleaned$fluvaccineshot, na.rm = TRUE)
+skew_sex <- skewness(df_cleaned$sex, na.rm = TRUE)
+skew_insure5_new <- skewness(df_cleaned$insure5_new, na.rm = TRUE)
+skew_newrace <- skewness(df_cleaned$newrace, na.rm = TRUE)
+
+print(skew_education)
+print(skew_fluvaccineshot)
+print(skew_sex)
+print(skew_insure5_new)
+print(skew_newrace)
+
+```
+
+```{r}
+df_cleaned$log_newrace <- log(df_cleaned$newrace)
+df_cleaned$log_newrace <- log(df_cleaned$newrace + 0.001)  
+unique(df_cleaned$newrace)
+unique(df_cleaned$newrace)
+```
+
+
+```{r}
+model <- glm(evercolon14 ~ insure5_new  + log_newrace + education + fluvaccineshot + sex,
+             data = df_cleaned, family = "binomial")
+summary(model)
+```
+
+```{r}
+odds.n.ends(model)
+```
+
+```{r}
+model_with_interactions <- glm(
+  formula = evercolon14 ~ log_newrace * insure5_new + education * insure5_new + 
+            fluvaccineshot * insure5_new + sex * insure5_new, 
+  family = "binomial", 
+  data = df_cleaned
+)
+summary(model_with_interactions)
+
+```
+
+```{r}
+odds.n.ends <- function(model, predProbPlot = FALSE, rocPlot = FALSE) {
+  coef_estimates <- coef(model)
+  odds_ratios <- exp(coef_estimates)
+  conf_intervals <- exp(confint(model))
+  result <- data.frame(
+    Predictor = names(coef_estimates),
+    Estimate = coef_estimates,
+    Odds_Ratio = odds_ratios,
+    Lower_95_CI = conf_intervals[, 1],
+    Upper_95_CI = conf_intervals[, 2]
+  )
+  print(result)
+  
+  if (predProbPlot) {
+    pred_probs <- predict(model, type = "response")
+    plot(pred_probs, type = "h", main = "Predicted Probabilities", 
+         xlab = "Observations", ylab = "Predicted Probability")
+  }
+  
+  if (rocPlot) {
+    library(pROC)
+    pred_probs <- predict(model, type = "response")
+    roc_curve <- roc(model$data$evercolon14, pred_probs)
+    plot(roc_curve, main = "ROC Curve", col = "blue", lwd = 2)
+    print(paste("AUC: ", auc(roc_curve)))
+  }
+}
+
+model <- glm(evercolon14 ~ log_newrace + insure5_new + education + fluvaccineshot + sex,
+             data = df_cleaned, family = "binomial")
+            
+odds.n.ends(model, predProbPlot = TRUE, rocPlot = TRUE)
+    print(paste("AUC: ", auc(roc_curve)))
+    plot(roc_curve, main = "ROC Curve", col = "blue", lwd = 2)
+```
+```{r}
+model_reduced <- glm(evercolon14 ~ insure5_new + log_newrace + education + 
+                     fluvaccineshot + sex, 
+                     data = df_cleaned, family = binomial)
+model_full <- glm(evercolon14 ~ insure5_new + log_newrace + education + 
+                  fluvaccineshot + sex + 
+                  log_newrace:insure5_new + 
+                  education:insure5_new + 
+                  fluvaccineshot:insure5_new + 
+                  sex:insure5_new, 
+                  data = df_cleaned, family = binomial)
+anova(model_reduced, model_full, test = "LRT")
+
+
+```
+```
+
+
+```
+```{r}
+install.packages("car")
+library(car)
+install.packages("ResourceSelection")
+library(ResourceSelection)
+hoslem.test(model_reduced$y, fitted(model_reduced))
+
+```
+
+```{r}
+vif(model)
+vif(model_reduced)
+vif(model_full)
+```
+
+
+
